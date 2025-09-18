@@ -26,7 +26,7 @@ This app is configured for GitHub Pages deployment:
 2. Enable GitHub Pages in repository settings
 3. The GitHub Action will automatically build and deploy on every push to `main`
 
-The app will be available at: `https://yourusername.github.io/nightreign-relic-manager`
+The app will be available at: `https://tonyliqx.github.io/nightreign-relic-manager`
 
 ## Configuration
 
