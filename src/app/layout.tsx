@@ -33,6 +33,7 @@ export default function RootLayout({
               <li><Link className="hover:underline underline-offset-4" href="/builds">Builds</Link></li>
               <li><Link className="hover:underline underline-offset-4" href="/compendium">Compendium</Link></li>
               <li><Link className="hover:underline underline-offset-4" href="/my-relics">My Relics</Link></li>
+              <li><Link className="hover:underline underline-offset-4" href="/search">Search</Link></li>
             </ul>
           </nav>
         </header>
