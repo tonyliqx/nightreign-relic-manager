@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { 
   Nightfarer, 
   Vessel, 
@@ -27,6 +28,24 @@ interface SearchResult {
   requiredEffectsFound: string[];
   avoidedEffectsFound: string[];
 }
+
+// Helper functions for URL parameter handling
+const encodeEffect = (effect: string): string => {
+  return encodeURIComponent(effect);
+};
+
+const decodeEffect = (encoded: string): string => {
+  return decodeURIComponent(encoded);
+};
+
+const encodeEffects = (effects: string[]): string => {
+  return effects.map(encodeEffect).join(',');
+};
+
+const decodeEffects = (encoded: string): string[] => {
+  if (!encoded) return [];
+  return encoded.split(',').map(decodeEffect).filter(effect => effect.length > 0);
+};
 
 // Function to read CSV files and parse relics data
 const loadRelicsFromCSV = async () => {
@@ -146,6 +165,9 @@ const parseRelicsFromCSV = (normalRelicsCSV: string, depthRelicsCSV: string) => 
 };
 
 export default function SearchPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  
   const [selectedNightfarer, setSelectedNightfarer] = useState<Nightfarer>('追踪者');
   const [requiredEffects, setRequiredEffects] = useState<string[]>([]);
   const [avoidedEffects, setAvoidedEffects] = useState<string[]>([]);
@@ -160,6 +182,48 @@ export default function SearchPage() {
   const [avoidedInput, setAvoidedInput] = useState('');
   const [showRequiredSuggestions, setShowRequiredSuggestions] = useState(false);
   const [showAvoidedSuggestions, setShowAvoidedSuggestions] = useState(false);
+
+  // Initialize state from URL parameters
+  useEffect(() => {
+    const nightfarerParam = searchParams.get('nightfarer');
+    const requiredParam = searchParams.get('required');
+    const avoidedParam = searchParams.get('avoided');
+    
+    if (nightfarerParam && NIGHTFARERS.includes(nightfarerParam as Nightfarer)) {
+      setSelectedNightfarer(nightfarerParam as Nightfarer);
+    }
+    
+    if (requiredParam) {
+      const decoded = decodeEffects(requiredParam);
+      setRequiredEffects(decoded);
+    }
+    
+    if (avoidedParam) {
+      const decoded = decodeEffects(avoidedParam);
+      setAvoidedEffects(decoded);
+    }
+  }, [searchParams]);
+
+  // Update URL parameters when state changes
+  useEffect(() => {
+    const params = new URLSearchParams();
+    
+    if (selectedNightfarer !== '追踪者') {
+      params.set('nightfarer', selectedNightfarer);
+    }
+    
+    if (requiredEffects.length > 0) {
+      params.set('required', encodeEffects(requiredEffects));
+    }
+    
+    if (avoidedEffects.length > 0) {
+      params.set('avoided', encodeEffects(avoidedEffects));
+    }
+    
+    const queryString = params.toString();
+    const newUrl = queryString ? `/search?${queryString}` : '/search';
+    router.replace(newUrl, { scroll: false });
+  }, [selectedNightfarer, requiredEffects, avoidedEffects, router]);
 
   // Load relics data on component mount
   useEffect(() => {
