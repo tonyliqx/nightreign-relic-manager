@@ -253,6 +253,7 @@ function SearchPageContent() {
 
   // Auto-suggest helper functions
   const getFilteredSuggestions = (input: string, type: 'required' | 'avoided') => {
+    // Use the constants as the source of truth for all possible effects
     const allEffects = type === 'required' ? DEPTH_POSITIVE_EFFECTS : DEPTH_NEGATIVE_EFFECTS;
     const selectedEffects = type === 'required' ? requiredEffects : avoidedEffects;
     
@@ -260,8 +261,7 @@ function SearchPageContent() {
       .filter(effect => 
         effect.toLowerCase().includes(input.toLowerCase()) && 
         !selectedEffects.includes(effect)
-      )
-      .slice(0, 10); // Limit to 10 suggestions
+      );
   };
 
   const handleRequiredInputChange = (value: string) => {
@@ -452,12 +452,24 @@ function SearchPageContent() {
             !avoidedEffects.some(avoid => allEffects.includes(avoid));
 
           if (meetsRequirements && avoidsUnwanted) {
-            // Categorize effects for display
+            // Categorize effects for display using actual CSV data
+            const allPositiveEffects = new Set<string>();
+            const allNegativeEffects = new Set<string>();
+            
+            relicsData.depthRelics.forEach(relic => {
+              if (relic.positiveEffect1) allPositiveEffects.add(relic.positiveEffect1);
+              if (relic.positiveEffect2) allPositiveEffects.add(relic.positiveEffect2);
+              if (relic.positiveEffect3) allPositiveEffects.add(relic.positiveEffect3);
+              if (relic.negativeEffect1) allNegativeEffects.add(relic.negativeEffect1);
+              if (relic.negativeEffect2) allNegativeEffects.add(relic.negativeEffect2);
+              if (relic.negativeEffect3) allNegativeEffects.add(relic.negativeEffect3);
+            });
+            
             const positiveEffects = allEffects.filter(effect => 
-              DEPTH_POSITIVE_EFFECTS.includes(effect)
+              allPositiveEffects.has(effect)
             );
             const negativeEffects = allEffects.filter(effect => 
-              DEPTH_NEGATIVE_EFFECTS.includes(effect)
+              allNegativeEffects.has(effect)
             );
             
             const additionalPositiveEffects = positiveEffects.filter(effect => 
