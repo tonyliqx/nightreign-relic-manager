@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { 
   Nightfarer, 
@@ -137,7 +137,7 @@ const parseRelicsFromCSV = (normalRelicsCSV: string, depthRelicsCSV: string) => 
 
           // Parse normal relics CSV - skip the mixed header/data row
           const normalLines = normalRelicsCSV.split('\n').slice(1); // Skip first line (mixed header/data)
-          normalLines.forEach((line, index) => {
+          normalLines.forEach((line) => {
             if (line.trim()) { // Skip empty lines
               const row = parseCSVLine(line);
               // Only take the first 4 columns for normal relics (color, effect1, effect2, effect3)
@@ -164,7 +164,7 @@ const parseRelicsFromCSV = (normalRelicsCSV: string, depthRelicsCSV: string) => 
   return { normalRelics, depthRelics };
 };
 
-export default function SearchPage() {
+function SearchPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   
@@ -176,6 +176,7 @@ export default function SearchPage() {
   const [searchProgress, setSearchProgress] = useState({ current: 0, total: 0 });
   const [relicsData, setRelicsData] = useState<{ normalRelics: NormalRelic[], depthRelics: DepthRelic[] }>({ normalRelics: [], depthRelics: [] });
   const [isLoading, setIsLoading] = useState(true);
+  const [expandedResults, setExpandedResults] = useState<Set<number>>(new Set());
   
   // Auto-suggest states
   const [requiredInput, setRequiredInput] = useState('');
@@ -248,21 +249,7 @@ export default function SearchPage() {
     loadData();
   }, []);
 
-  const handleRequiredEffectToggle = (effect: string) => {
-    setRequiredEffects(prev => 
-      prev.includes(effect) 
-        ? prev.filter(e => e !== effect)
-        : [...prev, effect]
-    );
-  };
-
-  const handleAvoidedEffectToggle = (effect: string) => {
-    setAvoidedEffects(prev => 
-      prev.includes(effect) 
-        ? prev.filter(e => e !== effect)
-        : [...prev, effect]
-    );
-  };
+  // Removed unused toggle functions - using suggestion select instead
 
   // Auto-suggest helper functions
   const getFilteredSuggestions = (input: string, type: 'required' | 'avoided') => {
@@ -329,6 +316,18 @@ export default function SearchPage() {
     }
   };
 
+  const toggleResultExpansion = (index: number) => {
+    setExpandedResults(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(index)) {
+        newSet.delete(index);
+      } else {
+        newSet.add(index);
+      }
+      return newSet;
+    });
+  };
+
   const generateAllPossibleRelics = (): Relic[] => {
     return [...relicsData.normalRelics, ...relicsData.depthRelics];
   };
@@ -377,9 +376,9 @@ export default function SearchPage() {
     // Build reverse lookup tables
     const effectToRelics = buildReverseLookup(allRelics);
     
-    // Pre-filter relics by type
-    const normalRelics = allRelics.filter(relic => isNormalRelic(relic));
-    const depthRelics = allRelics.filter(relic => isDepthRelic(relic));
+    // Pre-filter relics by type (for future use if needed)
+    // const normalRelics = allRelics.filter(relic => isNormalRelic(relic));
+    // const depthRelics = allRelics.filter(relic => isDepthRelic(relic));
 
     // Find candidate relics for required effects
     const candidateRelics = new Set<Relic>();
@@ -409,25 +408,20 @@ export default function SearchPage() {
     });
 
 
-    // Calculate total combinations for progress tracking
-    const totalCombinations = vessels.length * Math.pow(finalCandidates.length + 1, 6);
-    setSearchProgress({ current: 0, total: totalCombinations });
-
-    let combinationsChecked = 0;
+    // Use vessel-based progress tracking instead of combination counting
+    const totalVessels = vessels.length;
+    console.log(`Searching across ${totalVessels} vessels`);
+    setSearchProgress({ current: 0, total: totalVessels });
 
     // Optimized search with pre-filtered candidates
     for (let vesselIndex = 0; vesselIndex < vessels.length && results.length < MAX_RESULTS; vesselIndex++) {
       const vessel = vessels[vesselIndex];
       
+      // Update progress based on vessel completion
+      setSearchProgress({ current: vesselIndex, total: totalVessels });
+      
       const tryRelicCombination = async (currentIndex: number, currentRelics: Relic[]) => {
         if (results.length >= MAX_RESULTS) return;
-        
-        // Update progress every 50 combinations
-        combinationsChecked++;
-        if (combinationsChecked % 50 === 0) {
-          setSearchProgress({ current: combinationsChecked, total: totalCombinations });
-          await new Promise(resolve => setTimeout(resolve, 0));
-        }
         
         if (currentIndex >= vessel.slots.length) {
           // Check if this combination meets the requirements
@@ -510,7 +504,7 @@ export default function SearchPage() {
     }
 
     setSearchResults(results.slice(0, MAX_RESULTS));
-    setSearchProgress({ current: totalCombinations, total: totalCombinations });
+    setSearchProgress({ current: totalVessels, total: totalVessels });
     setIsSearching(false);
   };
 
@@ -682,16 +676,16 @@ export default function SearchPage() {
               <div className="w-full max-w-md">
                 <div className="flex justify-between text-sm text-white/80 mb-2">
                   <span>搜索进度</span>
-                  <span>{Math.round((searchProgress.current / searchProgress.total) * 100)}%</span>
+                  <span>{searchProgress.total > 0 ? Math.round((searchProgress.current / searchProgress.total) * 100) : 0}%</span>
                 </div>
                 <div className="w-full bg-white/20 rounded-full h-2">
                   <div 
                     className="bg-gradient-to-r from-blue-400 to-purple-400 h-2 rounded-full transition-all duration-300"
-                    style={{ width: `${(searchProgress.current / searchProgress.total) * 100}%` }}
+                    style={{ width: `${searchProgress.total > 0 ? (searchProgress.current / searchProgress.total) * 100 : 0}%` }}
                   ></div>
                 </div>
                 <div className="text-xs text-white/60 mt-1 text-center">
-                  已检查 {searchProgress.current.toLocaleString()} / {searchProgress.total.toLocaleString()} 种组合
+                  已搜索 {searchProgress.current} / {searchProgress.total} 个容器
                 </div>
               </div>
             )}
@@ -699,109 +693,162 @@ export default function SearchPage() {
         </div>
 
         {/* Search Results */}
-        <div className="space-y-8">
+        <div className="space-y-6">
           <h2 className="text-4xl font-bold text-white text-center">搜索结果 ({searchResults.length})</h2>
           
-          {searchResults.map((result, index) => (
-            <div key={index} className="bg-white/10 backdrop-blur-lg border-2 border-white/20 rounded-2xl p-8 shadow-2xl hover:shadow-white/10 transition-all">
-              <div className="flex justify-between items-start mb-6">
-                <h3 className="text-3xl font-bold text-white">
-                  {result.vessel.name} (构建 #{index + 1})
-                </h3>
-                <div className="text-xl text-white/80 bg-white/10 px-6 py-3 rounded-xl backdrop-blur-sm">
-                  装备遗物: {result.equippedRelics.length}/6
-                </div>
-              </div>
+          {searchResults.map((result, index) => {
+            const isExpanded = expandedResults.has(index);
+            
+            return (
+              <div key={index} className="bg-white/10 backdrop-blur-lg border-2 border-white/20 rounded-2xl shadow-2xl hover:shadow-white/10 transition-all">
+                        {/* Collapsed View - Always Visible */}
+                        <div 
+                          className="p-6 cursor-pointer hover:bg-white/5 transition-all"
+                          onClick={() => toggleResultExpansion(index)}
+                        >
+                          <div className="flex justify-between items-center">
+                            <div className="flex-1">
+                              <h3 className="text-2xl font-bold text-white mb-4">
+                                {result.vessel.name} (构建 #{index + 1})
+                              </h3>
+                              
+                              {/* Extra Positive Effects */}
+                              {result.additionalPositiveEffects.length > 0 && (
+                                <div className="mb-3">
+                                  <div className="text-green-400 font-bold text-sm mb-2">额外正面效果:</div>
+                                  <div className="flex flex-wrap gap-2">
+                                    {result.additionalPositiveEffects.map((effect, effectIndex) => (
+                                      <span 
+                                        key={`positive-${index}-${effectIndex}`}
+                                        className="text-xs text-green-300 bg-green-500/20 px-3 py-1 rounded-full border border-green-400/30"
+                                      >
+                                        {effect}
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                              
+                              {/* Extra Negative Effects */}
+                              {result.additionalNegativeEffects.length > 0 && (
+                                <div>
+                                  <div className="text-red-400 font-bold text-sm mb-2">额外负面效果:</div>
+                                  <div className="flex flex-wrap gap-2">
+                                    {result.additionalNegativeEffects.map((effect, effectIndex) => (
+                                      <span 
+                                        key={`negative-${index}-${effectIndex}`}
+                                        className="text-xs text-red-300 bg-red-500/20 px-3 py-1 rounded-full border border-red-400/30"
+                                      >
+                                        {effect}
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                            
+                            {/* Expand/Collapse Icon */}
+                            <div className="text-white/60 text-2xl transition-transform duration-200 ml-4">
+                              {isExpanded ? '▼' : '▶'}
+                            </div>
+                          </div>
+                        </div>
 
-              {/* Equipped Relics */}
-              <div className="mb-8">
-                <h4 className="text-2xl font-bold mb-6 text-white">装备的遗物:</h4>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {result.equippedRelics.map((relic, relicIndex) => (
-                    <div key={relicIndex} className="border-2 border-white/20 rounded-xl p-6 bg-white/5 backdrop-blur-sm hover:bg-white/10 transition-all">
-                      <div className="flex items-center space-x-3 mb-4">
-                        <span className={`px-4 py-2 rounded-full text-sm font-bold text-white shadow-lg ${
-                          relic.color === '红' ? 'bg-gradient-to-r from-red-500 to-red-600' :
-                          relic.color === '蓝' ? 'bg-gradient-to-r from-blue-500 to-blue-600' :
-                          relic.color === '绿' ? 'bg-gradient-to-r from-green-500 to-green-600' :
-                          'bg-gradient-to-r from-yellow-500 to-yellow-600'
-                        }`}>
-                          {relic.color}
-                        </span>
-                        <span className="text-sm font-bold text-white/90">
-                          {isNormalRelic(relic) ? '普通遗物' : '深度遗物'}
-                        </span>
+                {/* Expanded View - Conditionally Visible */}
+                {isExpanded && (
+                  <div className="px-6 pb-6 border-t border-white/20">
+                    {/* Equipped Relics */}
+                    <div className="mt-6">
+                      <h4 className="text-2xl font-bold mb-6 text-white">装备的遗物:</h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {result.equippedRelics.map((relic, relicIndex) => (
+                          <div key={relicIndex} className="border-2 border-white/20 rounded-xl p-6 bg-white/5 backdrop-blur-sm hover:bg-white/10 transition-all">
+                            <div className="flex items-center space-x-3 mb-4">
+                              <span className={`px-4 py-2 rounded-full text-sm font-bold text-white shadow-lg ${
+                                relic.color === '红' ? 'bg-gradient-to-r from-red-500 to-red-600' :
+                                relic.color === '蓝' ? 'bg-gradient-to-r from-blue-500 to-blue-600' :
+                                relic.color === '绿' ? 'bg-gradient-to-r from-green-500 to-green-600' :
+                                'bg-gradient-to-r from-yellow-500 to-yellow-600'
+                              }`}>
+                                {relic.color}
+                              </span>
+                              <span className="text-sm font-bold text-white/90">
+                                {isNormalRelic(relic) ? '普通遗物' : '深度遗物'}
+                              </span>
+                            </div>
+                            
+                            {isNormalRelic(relic) ? (
+                              <div className="space-y-2 text-sm">
+                                <div className="text-white/90">• {relic.effect1}</div>
+                                {relic.effect2 && <div className="text-white/90">• {relic.effect2}</div>}
+                                {relic.effect3 && <div className="text-white/90">• {relic.effect3}</div>}
+                              </div>
+                            ) : (
+                              <div className="space-y-2 text-sm">
+                                <div className="text-green-400 font-medium">+ {relic.positiveEffect1}</div>
+                                {relic.negativeEffect1 && <div className="text-red-400 font-medium">- {relic.negativeEffect1}</div>}
+                                {relic.positiveEffect2 && <div className="text-green-400 font-medium">+ {relic.positiveEffect2}</div>}
+                                {relic.negativeEffect2 && <div className="text-red-400 font-medium">- {relic.negativeEffect2}</div>}
+                                {relic.positiveEffect3 && <div className="text-green-400 font-medium">+ {relic.positiveEffect3}</div>}
+                                {relic.negativeEffect3 && <div className="text-red-400 font-medium">- {relic.negativeEffect3}</div>}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Effects Summary */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mt-8">
+                      <div className="bg-green-500/20 backdrop-blur-sm p-6 rounded-xl border border-green-400/30">
+                        <h4 className="text-xl font-bold text-green-400 mb-4">额外正面效果:</h4>
+                        <div className="space-y-2">
+                          {result.additionalPositiveEffects.length > 0 ? (
+                            result.additionalPositiveEffects.map((effect, effectIndex) => (
+                              <div key={`additional-positive-${index}-${effectIndex}`} className="text-sm text-green-300 bg-green-500/20 px-4 py-2 rounded-lg">• {effect}</div>
+                            ))
+                          ) : (
+                            <div className="text-sm text-white/50 italic">无</div>
+                          )}
+                        </div>
                       </div>
                       
-                      {isNormalRelic(relic) ? (
-                        <div className="space-y-2 text-sm">
-                          <div className="text-white/90">• {relic.effect1}</div>
-                          {relic.effect2 && <div className="text-white/90">• {relic.effect2}</div>}
-                          {relic.effect3 && <div className="text-white/90">• {relic.effect3}</div>}
+                      <div className="bg-red-500/20 backdrop-blur-sm p-6 rounded-xl border border-red-400/30">
+                        <h4 className="text-xl font-bold text-red-400 mb-4">额外负面效果:</h4>
+                        <div className="space-y-2">
+                          {result.additionalNegativeEffects.length > 0 ? (
+                            result.additionalNegativeEffects.map((effect, effectIndex) => (
+                              <div key={`additional-negative-${index}-${effectIndex}`} className="text-sm text-red-300 bg-red-500/20 px-4 py-2 rounded-lg">• {effect}</div>
+                            ))
+                          ) : (
+                            <div className="text-sm text-white/50 italic">无</div>
+                          )}
                         </div>
-                      ) : (
-                        <div className="space-y-2 text-sm">
-                          <div className="text-green-400 font-medium">+ {relic.positiveEffect1}</div>
-                          {relic.negativeEffect1 && <div className="text-red-400 font-medium">- {relic.negativeEffect1}</div>}
-                          {relic.positiveEffect2 && <div className="text-green-400 font-medium">+ {relic.positiveEffect2}</div>}
-                          {relic.negativeEffect2 && <div className="text-red-400 font-medium">- {relic.negativeEffect2}</div>}
-                          {relic.positiveEffect3 && <div className="text-green-400 font-medium">+ {relic.positiveEffect3}</div>}
-                          {relic.negativeEffect3 && <div className="text-red-400 font-medium">- {relic.negativeEffect3}</div>}
-                        </div>
-                      )}
+                      </div>
                     </div>
-                  ))}
-                </div>
-              </div>
 
-              {/* Effects Summary */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                <div className="bg-green-500/20 backdrop-blur-sm p-6 rounded-xl border border-green-400/30">
-                  <h4 className="text-xl font-bold text-green-400 mb-4">额外正面效果:</h4>
-                  <div className="space-y-2">
-                    {result.additionalPositiveEffects.length > 0 ? (
-                      result.additionalPositiveEffects.map((effect, effectIndex) => (
-                        <div key={`additional-positive-${index}-${effectIndex}`} className="text-sm text-green-300 bg-green-500/20 px-4 py-2 rounded-lg">• {effect}</div>
-                      ))
-                    ) : (
-                      <div className="text-sm text-white/50 italic">无</div>
-                    )}
+                    {/* Requirements Status */}
+                    <div className="mt-8 pt-6 border-t-2 border-white/20">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-xl">
+                        <div className="flex items-center space-x-3">
+                          <span className="font-bold text-white">找到的必需效果:</span>
+                          <span className="text-green-400 font-bold bg-green-500/20 px-4 py-2 rounded-lg">
+                            {result.requiredEffectsFound.length}/{requiredEffects.length}
+                          </span>
+                        </div>
+                        <div className="flex items-center space-x-3">
+                          <span className="font-bold text-white">避免的效果:</span>
+                          <span className="text-red-400 font-bold bg-red-500/20 px-4 py-2 rounded-lg">
+                            {result.avoidedEffectsFound.length}/{avoidedEffects.length}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                </div>
-                
-                <div className="bg-red-500/20 backdrop-blur-sm p-6 rounded-xl border border-red-400/30">
-                  <h4 className="text-xl font-bold text-red-400 mb-4">额外负面效果:</h4>
-                  <div className="space-y-2">
-                    {result.additionalNegativeEffects.length > 0 ? (
-                      result.additionalNegativeEffects.map((effect, effectIndex) => (
-                        <div key={`additional-negative-${index}-${effectIndex}`} className="text-sm text-red-300 bg-red-500/20 px-4 py-2 rounded-lg">• {effect}</div>
-                      ))
-                    ) : (
-                      <div className="text-sm text-white/50 italic">无</div>
-                    )}
-                  </div>
-                </div>
+                )}
               </div>
-
-              {/* Requirements Status */}
-              <div className="mt-8 pt-6 border-t-2 border-white/20">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-xl">
-                  <div className="flex items-center space-x-3">
-                    <span className="font-bold text-white">找到的必需效果:</span>
-                    <span className="text-green-400 font-bold bg-green-500/20 px-4 py-2 rounded-lg">
-                      {result.requiredEffectsFound.length}/{requiredEffects.length}
-                    </span>
-                  </div>
-                  <div className="flex items-center space-x-3">
-                    <span className="font-bold text-white">避免的效果:</span>
-                    <span className="text-red-400 font-bold bg-red-500/20 px-4 py-2 rounded-lg">
-                      {result.avoidedEffectsFound.length}/{avoidedEffects.length}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          ))}
+            );
+          })}
 
           {searchResults.length === 0 && !isSearching && (
             <div className="text-center py-20 bg-white/10 backdrop-blur-lg rounded-2xl border-2 border-white/20">
@@ -813,5 +860,21 @@ export default function SearchPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function SearchPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="text-6xl mb-4">⚡</div>
+          <div className="text-2xl text-white mb-2">加载中...</div>
+          <div className="text-lg text-white/70">请稍候</div>
+        </div>
+      </div>
+    }>
+      <SearchPageContent />
+    </Suspense>
   );
 }
