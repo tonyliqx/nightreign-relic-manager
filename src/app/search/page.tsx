@@ -29,6 +29,11 @@ interface SearchResult {
   avoidedEffectsFound: string[];
 }
 
+interface EffectRequirement {
+  effect: string;
+  count: number;
+}
+
 // Helper functions for URL parameter handling
 const encodeEffect = (effect: string): string => {
   return encodeURIComponent(effect);
@@ -36,6 +41,30 @@ const encodeEffect = (effect: string): string => {
 
 const decodeEffect = (encoded: string): string => {
   return decodeURIComponent(encoded);
+};
+
+const encodeEffectRequirement = (req: EffectRequirement): string => {
+  return `${encodeEffect(req.effect)}:${req.count}`;
+};
+
+const decodeEffectRequirement = (encoded: string): EffectRequirement | null => {
+  const parts = encoded.split(':');
+  if (parts.length !== 2) return null;
+  const effect = decodeEffect(parts[0]);
+  const count = parseInt(parts[1], 10);
+  if (isNaN(count) || count < 1) return null;
+  return { effect, count };
+};
+
+const encodeEffectRequirements = (requirements: EffectRequirement[]): string => {
+  return requirements.map(encodeEffectRequirement).join(',');
+};
+
+const decodeEffectRequirements = (encoded: string): EffectRequirement[] => {
+  if (!encoded) return [];
+  return encoded.split(',')
+    .map(decodeEffectRequirement)
+    .filter((req): req is EffectRequirement => req !== null);
 };
 
 const encodeEffects = (effects: string[]): string => {
@@ -169,7 +198,7 @@ function SearchPageContent() {
   const searchParams = useSearchParams();
   
   const [selectedNightfarer, setSelectedNightfarer] = useState<Nightfarer>('追踪者');
-  const [requiredEffects, setRequiredEffects] = useState<string[]>([]);
+  const [requiredEffects, setRequiredEffects] = useState<EffectRequirement[]>([]);
   const [avoidedEffects, setAvoidedEffects] = useState<string[]>([]);
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -195,7 +224,7 @@ function SearchPageContent() {
     }
     
     if (requiredParam) {
-      const decoded = decodeEffects(requiredParam);
+      const decoded = decodeEffectRequirements(requiredParam);
       setRequiredEffects(decoded);
     }
     
@@ -214,7 +243,7 @@ function SearchPageContent() {
     }
     
     if (requiredEffects.length > 0) {
-      params.set('required', encodeEffects(requiredEffects));
+      params.set('required', encodeEffectRequirements(requiredEffects));
     }
     
     if (avoidedEffects.length > 0) {
@@ -255,7 +284,9 @@ function SearchPageContent() {
   const getFilteredSuggestions = (input: string, type: 'required' | 'avoided') => {
     // Use the constants as the source of truth for all possible effects
     const allEffects = type === 'required' ? DEPTH_POSITIVE_EFFECTS : DEPTH_NEGATIVE_EFFECTS;
-    const selectedEffects = type === 'required' ? requiredEffects : avoidedEffects;
+    const selectedEffects = type === 'required' 
+      ? requiredEffects.map(req => req.effect) 
+      : avoidedEffects;
     
     return allEffects
       .filter(effect => 
@@ -275,8 +306,17 @@ function SearchPageContent() {
   };
 
   const handleRequiredSuggestionSelect = (effect: string) => {
-    if (!requiredEffects.includes(effect)) {
-      setRequiredEffects(prev => [...prev, effect]);
+    const existingIndex = requiredEffects.findIndex(req => req.effect === effect);
+    if (existingIndex >= 0) {
+      // If effect already exists, increment count
+      setRequiredEffects(prev => prev.map((req, index) => 
+        index === existingIndex 
+          ? { ...req, count: req.count + 1 }
+          : req
+      ));
+    } else {
+      // If effect doesn't exist, add it with count 1
+      setRequiredEffects(prev => [...prev, { effect, count: 1 }]);
     }
     setRequiredInput('');
     setShowRequiredSuggestions(false);
@@ -291,7 +331,19 @@ function SearchPageContent() {
   };
 
   const handleRequiredEffectRemove = (effect: string) => {
-    setRequiredEffects(prev => prev.filter(e => e !== effect));
+    setRequiredEffects(prev => prev.filter(req => req.effect !== effect));
+  };
+
+  const handleRequiredEffectCountChange = (effect: string, newCount: number) => {
+    if (newCount <= 0) {
+      handleRequiredEffectRemove(effect);
+    } else {
+      setRequiredEffects(prev => prev.map(req => 
+        req.effect === effect 
+          ? { ...req, count: newCount }
+          : req
+      ));
+    }
   };
 
   const handleAvoidedEffectRemove = (effect: string) => {
@@ -380,19 +432,19 @@ function SearchPageContent() {
     // const normalRelics = allRelics.filter(relic => isNormalRelic(relic));
     // const depthRelics = allRelics.filter(relic => isDepthRelic(relic));
 
-    // Find candidate relics for required effects
-    const candidateRelics = new Set<Relic>();
-    
-    // Add relics that have required effects
-    requiredEffects.forEach(effect => {
-      const relicsWithEffect = effectToRelics[effect] || [];
-      relicsWithEffect.forEach(relic => candidateRelics.add(relic));
-    });
-    
-    // If no required effects, use all relics
-    if (requiredEffects.length === 0) {
-      allRelics.forEach(relic => candidateRelics.add(relic));
-    }
+            // Find candidate relics for required effects
+            const candidateRelics = new Set<Relic>();
+            
+            // Add relics that have required effects
+            requiredEffects.forEach(req => {
+              const relicsWithEffect = effectToRelics[req.effect] || [];
+              relicsWithEffect.forEach(relic => candidateRelics.add(relic));
+            });
+            
+            // If no required effects, use all relics
+            if (requiredEffects.length === 0) {
+              allRelics.forEach(relic => candidateRelics.add(relic));
+            }
 
     // Filter out relics that have avoided effects
     const finalCandidates = Array.from(candidateRelics).filter(relic => {
@@ -437,25 +489,36 @@ function SearchPageContent() {
             }
           });
 
-          // Check if all required effects are found in any of the effects
-          const requiredEffectsFound = requiredEffects.filter(req => 
-            allEffects.includes(req)
-          );
-          const avoidedEffectsFound = avoidedEffects.filter(avoid => 
-            allEffects.includes(avoid)
-          );
+                  // Count occurrences of each effect
+                  const effectCounts: Record<string, number> = {};
+                  allEffects.forEach(effect => {
+                    effectCounts[effect] = (effectCounts[effect] || 0) + 1;
+                  });
 
-          // Check if all required effects are found and no avoided effects are present
-          const meetsRequirements = requiredEffects.length === 0 || 
-            requiredEffects.every(req => allEffects.includes(req));
-          const avoidsUnwanted = avoidedEffects.length === 0 || 
-            !avoidedEffects.some(avoid => allEffects.includes(avoid));
+                  // Check if all required effects are found with correct counts
+                  const requiredEffectsFound = requiredEffects.filter(req => {
+                    const count = effectCounts[req.effect] || 0;
+                    return count >= req.count;
+                  });
+                  const avoidedEffectsFound = avoidedEffects.filter(avoid => 
+                    allEffects.includes(avoid)
+                  );
+
+                  // Check if all required effects are found with correct counts and no avoided effects are present
+                  const meetsRequirements = requiredEffects.length === 0 || 
+                    requiredEffects.every(req => {
+                      const count = effectCounts[req.effect] || 0;
+                      return count >= req.count;
+                    });
+                  const avoidsUnwanted = avoidedEffects.length === 0 || 
+                    !avoidedEffects.some(avoid => allEffects.includes(avoid));
 
           if (meetsRequirements && avoidsUnwanted) {
             // Categorize effects for display using actual CSV data
             const allPositiveEffects = new Set<string>();
             const allNegativeEffects = new Set<string>();
             
+            // Add depth relic effects
             relicsData.depthRelics.forEach(relic => {
               if (relic.positiveEffect1) allPositiveEffects.add(relic.positiveEffect1);
               if (relic.positiveEffect2) allPositiveEffects.add(relic.positiveEffect2);
@@ -465,6 +528,13 @@ function SearchPageContent() {
               if (relic.negativeEffect3) allNegativeEffects.add(relic.negativeEffect3);
             });
             
+            // Add normal relic effects (these are also positive effects)
+            relicsData.normalRelics.forEach(relic => {
+              if (relic.effect1) allPositiveEffects.add(relic.effect1);
+              if (relic.effect2) allPositiveEffects.add(relic.effect2);
+              if (relic.effect3) allPositiveEffects.add(relic.effect3);
+            });
+            
             const positiveEffects = allEffects.filter(effect => 
               allPositiveEffects.has(effect)
             );
@@ -472,8 +542,9 @@ function SearchPageContent() {
               allNegativeEffects.has(effect)
             );
             
+            const requiredEffectNames = requiredEffects.map(req => req.effect);
             const additionalPositiveEffects = positiveEffects.filter(effect => 
-              !requiredEffects.includes(effect)
+              !requiredEffectNames.includes(effect)
             );
             const additionalNegativeEffects = negativeEffects.filter(effect => 
               !avoidedEffects.includes(effect)
@@ -484,7 +555,7 @@ function SearchPageContent() {
               equippedRelics: [...currentRelics],
               additionalPositiveEffects,
               additionalNegativeEffects,
-              requiredEffectsFound,
+              requiredEffectsFound: requiredEffectsFound.map(req => req.effect),
               avoidedEffectsFound
             });
           }
@@ -498,7 +569,24 @@ function SearchPageContent() {
             if (slot.slotType === 'normal' && !isNormalRelic(relic)) return false;
             if (slot.slotType === 'depth' && !isDepthRelic(relic)) return false;
             // Check color compatibility
-            return canEquipRelic(slot, relic);
+            if (!canEquipRelic(slot, relic)) return false;
+            // Check if relic is already used in this build
+            return !currentRelics.some(existingRelic => 
+              existingRelic === relic || 
+              (isNormalRelic(existingRelic) && isNormalRelic(relic) && 
+               existingRelic.color === relic.color && 
+               existingRelic.effect1 === relic.effect1 && 
+               existingRelic.effect2 === relic.effect2 && 
+               existingRelic.effect3 === relic.effect3) ||
+              (isDepthRelic(existingRelic) && isDepthRelic(relic) && 
+               existingRelic.color === relic.color && 
+               existingRelic.positiveEffect1 === relic.positiveEffect1 && 
+               existingRelic.negativeEffect1 === relic.negativeEffect1 && 
+               existingRelic.positiveEffect2 === relic.positiveEffect2 && 
+               existingRelic.negativeEffect2 === relic.negativeEffect2 && 
+               existingRelic.positiveEffect3 === relic.positiveEffect3 && 
+               existingRelic.negativeEffect3 === relic.negativeEffect3)
+            );
           });
         
         // Try each compatible relic
@@ -592,15 +680,31 @@ function SearchPageContent() {
                 
                 {/* Selected effects as chips */}
                 <div className="flex flex-wrap gap-2 min-h-[60px] p-3 border-2 border-white/30 rounded-xl bg-white/5">
-                  {requiredEffects.map((effect, index) => (
+                  {requiredEffects.map((req, index) => (
                     <div
-                      key={`${effect}-${index}`}
+                      key={`${req.effect}-${index}`}
                       className="inline-flex items-center gap-2 px-3 py-2 bg-blue-500/20 text-blue-200 rounded-full border border-blue-400/30"
                     >
-                      <span className="text-sm">{effect}</span>
+                      <span className="text-sm">{req.effect}</span>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => handleRequiredEffectCountChange(req.effect, req.count - 1)}
+                          className="text-blue-300 hover:text-blue-100 transition-colors text-xs px-1"
+                          disabled={req.count <= 1}
+                        >
+                          −
+                        </button>
+                        <span className="text-xs font-bold px-1 min-w-[20px] text-center">{req.count}</span>
+                        <button
+                          onClick={() => handleRequiredEffectCountChange(req.effect, req.count + 1)}
+                          className="text-blue-300 hover:text-blue-100 transition-colors text-xs px-1"
+                        >
+                          +
+                        </button>
+                      </div>
                       <button
-                        onClick={() => handleRequiredEffectRemove(effect)}
-                        className="text-blue-300 hover:text-blue-100 transition-colors"
+                        onClick={() => handleRequiredEffectRemove(req.effect)}
+                        className="text-blue-300 hover:text-blue-100 transition-colors ml-1"
                       >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -841,13 +945,29 @@ function SearchPageContent() {
 
                     {/* Requirements Status */}
                     <div className="mt-8 pt-6 border-t-2 border-white/20">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-xl">
+                      <div className="space-y-6">
                         <div className="flex items-center space-x-3">
                           <span className="font-bold text-white">找到的必需效果:</span>
                           <span className="text-green-400 font-bold bg-green-500/20 px-4 py-2 rounded-lg">
                             {result.requiredEffectsFound.length}/{requiredEffects.length}
                           </span>
                         </div>
+                        {requiredEffects.length > 0 && (
+                          <div className="text-sm text-white/80">
+                            <div className="font-bold mb-2">详细要求:</div>
+                            {requiredEffects.map(req => {
+                              const foundCount = result.requiredEffectsFound.includes(req.effect) ? req.count : 0;
+                              return (
+                                <div key={req.effect} className="flex justify-between items-center py-1">
+                                  <span className="truncate max-w-md">{req.effect}</span>
+                                  <span className={foundCount >= req.count ? "text-green-400" : "text-red-400"}>
+                                    {foundCount}/{req.count}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
                         <div className="flex items-center space-x-3">
                           <span className="font-bold text-white">避免的效果:</span>
                           <span className="text-red-400 font-bold bg-red-500/20 px-4 py-2 rounded-lg">
