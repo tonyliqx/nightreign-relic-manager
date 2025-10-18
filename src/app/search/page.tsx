@@ -19,6 +19,7 @@ import {
   DEPTH_POSITIVE_EFFECTS, 
   DEPTH_NEGATIVE_EFFECTS
 } from '../../data/relicPropertiesData';
+import { loadRelicCollection, hasRelicsInStorage } from '../../utils/storageUtils';
 
 interface SearchResult {
   vessel: Vessel;
@@ -76,21 +77,30 @@ const decodeEffects = (encoded: string): string[] => {
   return encoded.split(',').map(decodeEffect).filter(effect => effect.length > 0);
 };
 
-// Function to read CSV files and parse relics data
-const loadRelicsFromCSV = async () => {
+// Function to load relics from user's inventory (localStorage) or fallback to CSV files
+const loadRelicsData = async () => {
   try {
-    // Read normal relics CSV
+    // First try to load from user's inventory (localStorage)
+    if (hasRelicsInStorage()) {
+      const userRelics = loadRelicCollection();
+      console.log('Loaded relics from user inventory:', {
+        normalRelics: userRelics.normalRelics.length,
+        depthRelics: userRelics.depthRelics.length
+      });
+      return userRelics;
+    }
+    
+    // Fallback to loading from CSV files if no user inventory exists
+    console.log('No user inventory found, loading from CSV files...');
     const normalResponse = await fetch('/relics.csv');
     const normalCSV = await normalResponse.text();
     
-    
-    // Read depth relics CSV  
     const depthResponse = await fetch('/depth_relics.csv');
     const depthCSV = await depthResponse.text();
     
     return parseRelicsFromCSV(normalCSV, depthCSV);
   } catch (error) {
-    console.error('Error loading CSV files:', error);
+    console.error('Error loading relics data:', error);
     return { normalRelics: [], depthRelics: [] };
   }
 };
@@ -212,6 +222,12 @@ function SearchPageContent() {
   const [avoidedInput, setAvoidedInput] = useState('');
   const [showRequiredSuggestions, setShowRequiredSuggestions] = useState(false);
   const [showAvoidedSuggestions, setShowAvoidedSuggestions] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  // Refresh relics data
+  const refreshRelicsData = () => {
+    setRefreshKey(prev => prev + 1);
+  };
 
   // Initialize state from URL parameters
   useEffect(() => {
@@ -260,7 +276,7 @@ function SearchPageContent() {
     const loadData = async () => {
       setIsLoading(true);
       try {
-        const data = await loadRelicsFromCSV();
+        const data = await loadRelicsData();
         setRelicsData(data);
         console.log('Loaded relics data:', {
           normalRelics: data.normalRelics.length,
@@ -276,7 +292,7 @@ function SearchPageContent() {
     };
     
     loadData();
-  }, []);
+  }, [refreshKey]);
 
   // Removed unused toggle functions - using suggestion select instead
 
@@ -623,9 +639,21 @@ function SearchPageContent() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
       <div className="container mx-auto p-6 max-w-7xl">
-        <h1 className="text-5xl font-bold mb-8 text-white text-center bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
-          遗物构建搜索
-        </h1>
+        <div className="flex justify-center items-center gap-4 mb-8">
+          <h1 className="text-5xl font-bold text-white bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
+            遗物构建搜索
+          </h1>
+          <button
+            onClick={refreshRelicsData}
+            className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors flex items-center gap-2"
+            title="Refresh relics data from your inventory"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            Refresh
+          </button>
+        </div>
         
         {/* Search Controls */}
         <div className="bg-white/10 backdrop-blur-lg p-8 rounded-2xl shadow-2xl mb-8 border border-white/20">
@@ -805,6 +833,29 @@ function SearchPageContent() {
                 </div>
               </div>
             )}
+          </div>
+        </div>
+
+        {/* Data Source Indicator */}
+        <div className="bg-white/5 backdrop-blur-lg p-4 rounded-xl mb-6 border border-white/10">
+          <div className="flex items-center justify-between text-sm text-white/70">
+            <div className="flex items-center gap-2">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span>
+                {hasRelicsInStorage() 
+                  ? `Using your personal relic inventory (${relicsData.normalRelics.length} normal, ${relicsData.depthRelics.length} depth relics)`
+                  : `Using default CSV data (${relicsData.normalRelics.length} normal, ${relicsData.depthRelics.length} depth relics)`
+                }
+              </span>
+            </div>
+            <a 
+              href="/my-relics" 
+              className="text-blue-400 hover:text-blue-300 transition-colors underline"
+            >
+              Manage Inventory
+            </a>
           </div>
         </div>
 
