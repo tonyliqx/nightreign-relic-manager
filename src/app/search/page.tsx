@@ -223,6 +223,9 @@ function SearchPageContent() {
   const [showRequiredSuggestions, setShowRequiredSuggestions] = useState(false);
   const [showAvoidedSuggestions, setShowAvoidedSuggestions] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  
+  // Additional effects view state
+  const [showAdditionalEffects, setShowAdditionalEffects] = useState(false);
 
   // Refresh relics data
   const refreshRelicsData = () => {
@@ -299,7 +302,9 @@ function SearchPageContent() {
   // Auto-suggest helper functions
   const getFilteredSuggestions = (input: string, type: 'required' | 'avoided') => {
     // Use the constants as the source of truth for all possible effects
-    const allEffects = type === 'required' ? DEPTH_POSITIVE_EFFECTS : DEPTH_NEGATIVE_EFFECTS;
+    const allEffects = type === 'required' 
+      ? DEPTH_POSITIVE_EFFECTS 
+      : [...DEPTH_POSITIVE_EFFECTS, ...DEPTH_NEGATIVE_EFFECTS]; // Allow any effect in avoid list
     const selectedEffects = type === 'required' 
       ? requiredEffects.map(req => req.effect) 
       : avoidedEffects;
@@ -394,6 +399,45 @@ function SearchPageContent() {
       }
       return newSet;
     });
+  };
+
+  // Additional effects functionality
+  const getAllAdditionalEffects = () => {
+    const allAdditionalEffects = new Set<string>();
+    
+    searchResults.forEach(result => {
+      result.additionalPositiveEffects.forEach(effect => allAdditionalEffects.add(effect));
+      result.additionalNegativeEffects.forEach(effect => allAdditionalEffects.add(effect));
+    });
+    
+    return Array.from(allAdditionalEffects).sort();
+  };
+
+  const isNegativeEffect = (effect: string) => {
+    return DEPTH_NEGATIVE_EFFECTS.includes(effect);
+  };
+
+  const handleAdditionalEffectClick = (effect: string) => {
+    if (isNegativeEffect(effect)) {
+      // Add to avoid list
+      if (!avoidedEffects.includes(effect)) {
+        setAvoidedEffects(prev => [...prev, effect]);
+      }
+    } else {
+      // Add to required list
+      const existingReq = requiredEffects.find(req => req.effect === effect);
+      if (existingReq) {
+        setRequiredEffects(prev => 
+          prev.map(req => 
+            req.effect === effect 
+              ? { ...req, count: req.count + 1 }
+              : req
+          )
+        );
+      } else {
+        setRequiredEffects(prev => [...prev, { effect, count: 1 }]);
+      }
+    }
   };
 
   const generateAllPossibleRelics = (): Relic[] => {
@@ -641,7 +685,7 @@ function SearchPageContent() {
       <div className="container mx-auto p-6 max-w-7xl">
         <div className="flex justify-center items-center gap-4 mb-8">
           <h1 className="text-5xl font-bold text-white bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
-            遗物构建搜索
+            遗物配装搜索
           </h1>
           <button
             onClick={refreshRelicsData}
@@ -861,7 +905,51 @@ function SearchPageContent() {
 
         {/* Search Results */}
         <div className="space-y-6">
-          <h2 className="text-4xl font-bold text-white text-center">搜索结果 ({searchResults.length})</h2>
+          <div className="text-center">
+            <h2 className="text-4xl font-bold text-white mb-4">搜索结果 ({searchResults.length})</h2>
+            
+            {/* View Additional Effects Button */}
+            {searchResults.length > 0 && (
+              <button
+                onClick={() => setShowAdditionalEffects(!showAdditionalEffects)}
+                className="px-6 py-3 bg-blue-500/20 hover:bg-blue-500/30 text-blue-200 border border-blue-400/30 rounded-xl font-semibold transition-all backdrop-blur-sm hover:scale-105"
+              >
+                {showAdditionalEffects ? '隐藏额外效果' : '查看额外效果'}
+              </button>
+            )}
+          </div>
+          
+          {/* Additional Effects Section */}
+          {showAdditionalEffects && searchResults.length > 0 && (
+            <div className="bg-white/10 backdrop-blur-lg border-2 border-white/20 rounded-2xl shadow-2xl p-6">
+              <h3 className="text-2xl font-bold text-white mb-4">所有额外效果</h3>
+              <div className="flex flex-wrap gap-3">
+                {getAllAdditionalEffects().map((effect, index) => {
+                  const isNegative = isNegativeEffect(effect);
+                  return (
+                    <button
+                      key={`additional-${index}`}
+                      onClick={() => handleAdditionalEffectClick(effect)}
+                      className={`px-4 py-2 rounded-full text-sm font-medium transition-all hover:scale-105 ${
+                        isNegative
+                          ? 'bg-red-500/20 text-red-200 border border-red-400/30 hover:bg-red-500/30'
+                          : 'bg-green-500/20 text-green-200 border border-green-400/30 hover:bg-green-500/30'
+                      }`}
+                    >
+                      {isNegative ? '−' : '+'} {effect}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-white/60 text-sm mt-4">
+                点击效果可添加到{' '}
+                <span className="text-green-400">必需效果</span>
+                {' '}或{' '}
+                <span className="text-red-400">避免效果</span>
+                {' '}列表中
+              </p>
+            </div>
+          )}
           
           {searchResults.map((result, index) => {
             const isExpanded = expandedResults.has(index);
@@ -876,7 +964,7 @@ function SearchPageContent() {
                           <div className="flex justify-between items-center">
                             <div className="flex-1">
                               <h3 className="text-2xl font-bold text-white mb-4">
-                                {result.vessel.name} (构建 #{index + 1})
+                                {result.vessel.name} (配装 #{index + 1})
                               </h3>
                               
                               {/* Extra Positive Effects */}
@@ -1036,7 +1124,7 @@ function SearchPageContent() {
           {searchResults.length === 0 && !isSearching && (
             <div className="text-center py-20 bg-white/10 backdrop-blur-lg rounded-2xl border-2 border-white/20">
               <div className="text-8xl mb-6">🔍</div>
-              <div className="text-3xl text-white mb-4">没有找到符合条件的构建</div>
+              <div className="text-3xl text-white mb-4">没有找到符合条件的配装</div>
               <div className="text-xl text-white/70">请调整搜索条件后重试</div>
             </div>
           )}

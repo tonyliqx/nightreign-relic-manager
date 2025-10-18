@@ -1,44 +1,39 @@
-import type { NextConfig } from "next";
+import type { NextConfig } from 'next';
+
+const isDev = process.env.NODE_ENV === 'development';
 
 const nextConfig: NextConfig = {
-  output: 'export',
-  trailingSlash: true,
+  // Static export only for production (GitHub Pages)
+  ...(!isDev && {
+    output: 'export',
+    trailingSlash: true,
+    basePath: '/nightreign-relic-manager',
+    assetPrefix: '/nightreign-relic-manager/',
+  }),
   images: {
     unoptimized: true
   },
-  basePath: process.env.NODE_ENV === 'production' ? '/nightreign-relic-manager' : '',
-  assetPrefix: process.env.NODE_ENV === 'production' ? '/nightreign-relic-manager' : '',
-  // Completely disable all caching in development
-  ...(process.env.NODE_ENV === 'development' && {
+  // Development optimizations - disable all caching for stable hot reload
+  ...(isDev && {
     webpack: (config: any, { dev }: { dev: boolean }) => {
       if (dev) {
-        // Disable all webpack caching
+        // Completely disable all caching to prevent stale issues
         config.cache = false;
         config.snapshot = { managedPaths: [] };
-        config.watchOptions = {
-          poll: 1000,
-          aggregateTimeout: 200,
-          ignored: ['**/node_modules/**', '**/.next/**'],
-        };
-        // Disable module concatenation
         config.optimization = {
           ...config.optimization,
-          concatenateModules: false,
+          moduleIds: 'named',
+          chunkIds: 'named',
+        };
+        // Optimize for faster rebuilds
+        config.watchOptions = {
+          poll: 1000,
+          aggregateTimeout: 300,
+          ignored: /node_modules/,
         };
       }
       return config;
     },
-    experimental: {
-      // Disable all experimental caching
-      staleTimes: { dynamic: 0, static: 0 },
-    },
-    // Disable Next.js cache completely
-    onDemandEntries: {
-      maxInactiveAge: 0,
-      pagesBufferLength: 0,
-    },
-    // Force fresh builds
-    generateBuildId: () => 'dev-build-' + Date.now(),
   }),
 };
 

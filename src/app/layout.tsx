@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Nightreign Relic Manager",
-  description: "Build optimizer and compendium for Nightreign",
+  title: "遗物配装搜索",
+  description: "Nightreign 遗物配装优化器和图鉴",
 };
 
 export default function RootLayout({
@@ -28,12 +28,12 @@ export default function RootLayout({
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased min-h-screen bg-white text-black dark:bg-black dark:text-white`}> 
         <header className="border-b border-black/10 dark:border-white/10">
           <nav className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
-            <Link href="/" className="font-semibold tracking-tight">Relics.pro-like</Link>
+            <Link href="/" className="font-semibold tracking-tight">遗物配装搜索</Link>
             <ul className="flex gap-6 text-sm">
-              <li><Link className="hover:underline underline-offset-4" href="/builds">Builds</Link></li>
-              <li><Link className="hover:underline underline-offset-4" href="/compendium">Compendium</Link></li>
-              <li><Link className="hover:underline underline-offset-4" href="/my-relics">My Relics</Link></li>
-              <li><Link className="hover:underline underline-offset-4" href="/search">Search</Link></li>
+              <li><Link className="hover:underline underline-offset-4" href="/builds">配装</Link></li>
+              <li><Link className="hover:underline underline-offset-4" href="/compendium">图鉴</Link></li>
+              <li><Link className="hover:underline underline-offset-4" href="/my-relics">我的遗物</Link></li>
+              <li><Link className="hover:underline underline-offset-4" href="/search">搜索</Link></li>
             </ul>
           </nav>
         </header>

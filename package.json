@@ -4,8 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "dev:no-cache": "rm -rf .next && rm -rf node_modules/.cache && rm -rf .swc && next dev --turbo=false",
-    "dev:fresh": "rm -rf .next && rm -rf node_modules/.cache && rm -rf .swc && NODE_OPTIONS='--max-old-space-size=4096' next dev --turbo=false",
+    "dev:clean": "rm -rf .next && rm -rf node_modules/.cache && rm -rf .swc && next dev",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
