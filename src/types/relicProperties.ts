@@ -15,7 +15,7 @@ export type DepthPositiveEffect = string;
 export type DepthNegativeEffect = string;
 
 // Nightfarer types
-export type Nightfarer = '追踪者' | '守护者' | '铁眼' | '女爵' | '无赖' | '复仇者' | '隐士' | '执行者';
+export type Nightfarer = '追踪者' | '守护者' | '铁之眼' | '女爵' | '无赖' | '复仇者' | '隐士' | '执行者' | '学者' | '送葬者';
 
 // Normal Relic Structure
 export interface NormalRelic {

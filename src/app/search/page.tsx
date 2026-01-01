@@ -704,7 +704,7 @@ function SearchPageContent() {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             {/* Nightfarer Selector */}
             <div>
-              <label className="block text-xl font-bold mb-4 text-white">选择夜行者</label>
+              <label className="block text-xl font-bold mb-4 text-white">选择渡夜者</label>
               <select 
                 value={selectedNightfarer} 
                 onChange={(e) => setSelectedNightfarer(e.target.value as Nightfarer)}
