@@ -212,7 +212,7 @@ function SearchPageContent() {
   const [avoidedEffects, setAvoidedEffects] = useState<string[]>([]);
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
-  const [searchProgress, setSearchProgress] = useState({ current: 0, total: 0 });
+  const [searchProgress, setSearchProgress] = useState({ current: 0, total: 0, combinationsChecked: 0 });
   const [relicsData, setRelicsData] = useState<{ normalRelics: NormalRelic[], depthRelics: DepthRelic[] }>({ normalRelics: [], depthRelics: [] });
   const [isLoading, setIsLoading] = useState(true);
   const [expandedResults, setExpandedResults] = useState<Set<number>>(new Set());
@@ -475,36 +475,51 @@ function SearchPageContent() {
     return effectToRelics;
   };
 
+  // Helper function to create a canonical key for a set of relics (for deduplication)
+  const createRelicKey = (relic: Relic): string => {
+    if (isNormalRelic(relic)) {
+      return `normal:${relic.color}:${relic.effect1}:${relic.effect2 || ''}:${relic.effect3 || ''}`;
+    } else {
+      return `depth:${relic.color}:${relic.positiveEffect1}:${relic.negativeEffect1 || ''}:${relic.positiveEffect2 || ''}:${relic.negativeEffect2 || ''}:${relic.positiveEffect3 || ''}:${relic.negativeEffect3 || ''}`;
+    }
+  };
+
+  // Helper function to create a canonical key for a build (sorted relic keys)
+  const createBuildKey = (relics: Relic[]): string => {
+    return relics.map(createRelicKey).sort().join('|');
+  };
+
+  // Helper function to yield control to browser
+  const yieldToBrowser = (): Promise<void> => {
+    return new Promise(resolve => setTimeout(resolve, 0));
+  };
+
   const searchForBuilds = async () => {
     setIsSearching(true);
-    setSearchProgress({ current: 0, total: 0 });
+    setSearchProgress({ current: 0, total: 0, combinationsChecked: 0 });
     
     const vessels = NIGHTFARER_VESSELS[selectedNightfarer];
     const allRelics = generateAllPossibleRelics();
     const results: SearchResult[] = [];
+    const seenBuilds = new Set<string>(); // For deduplication
     const MAX_RESULTS = 100;
-
 
     // Build reverse lookup tables
     const effectToRelics = buildReverseLookup(allRelics);
     
-    // Pre-filter relics by type (for future use if needed)
-    // const normalRelics = allRelics.filter(relic => isNormalRelic(relic));
-    // const depthRelics = allRelics.filter(relic => isDepthRelic(relic));
-
-            // Find candidate relics for required effects
-            const candidateRelics = new Set<Relic>();
-            
-            // Add relics that have required effects
-            requiredEffects.forEach(req => {
-              const relicsWithEffect = effectToRelics[req.effect] || [];
-              relicsWithEffect.forEach(relic => candidateRelics.add(relic));
-            });
-            
-            // If no required effects, use all relics
-            if (requiredEffects.length === 0) {
-              allRelics.forEach(relic => candidateRelics.add(relic));
-            }
+    // Find candidate relics for required effects
+    const candidateRelics = new Set<Relic>();
+    
+    // Add relics that have required effects
+    requiredEffects.forEach(req => {
+      const relicsWithEffect = effectToRelics[req.effect] || [];
+      relicsWithEffect.forEach(relic => candidateRelics.add(relic));
+    });
+    
+    // If no required effects, use all relics
+    if (requiredEffects.length === 0) {
+      allRelics.forEach(relic => candidateRelics.add(relic));
+    }
 
     // Filter out relics that have avoided effects
     const finalCandidates = Array.from(candidateRelics).filter(relic => {
@@ -519,23 +534,67 @@ function SearchPageContent() {
       return !avoidedEffects.some(avoided => relicEffects.includes(avoided));
     });
 
+    // Pre-compute positive/negative effect sets for categorization
+    const allPositiveEffects = new Set<string>();
+    const allNegativeEffects = new Set<string>();
+    
+    relicsData.depthRelics.forEach(relic => {
+      if (relic.positiveEffect1) allPositiveEffects.add(relic.positiveEffect1);
+      if (relic.positiveEffect2) allPositiveEffects.add(relic.positiveEffect2);
+      if (relic.positiveEffect3) allPositiveEffects.add(relic.positiveEffect3);
+      if (relic.negativeEffect1) allNegativeEffects.add(relic.negativeEffect1);
+      if (relic.negativeEffect2) allNegativeEffects.add(relic.negativeEffect2);
+      if (relic.negativeEffect3) allNegativeEffects.add(relic.negativeEffect3);
+    });
+    
+    relicsData.normalRelics.forEach(relic => {
+      if (relic.effect1) allPositiveEffects.add(relic.effect1);
+      if (relic.effect2) allPositiveEffects.add(relic.effect2);
+      if (relic.effect3) allPositiveEffects.add(relic.effect3);
+    });
 
-    // Use vessel-based progress tracking instead of combination counting
     const totalVessels = vessels.length;
-    console.log(`Searching across ${totalVessels} vessels`);
-    setSearchProgress({ current: 0, total: totalVessels });
+    let totalCombinationsChecked = 0;
+    const YIELD_INTERVAL = 50000; // Yield every N combinations to keep UI responsive (much less frequent)
 
-    // Optimized search with pre-filtered candidates
+    console.log(`Searching across ${totalVessels} vessels`);
+    console.log(`Filtered to ${finalCandidates.length} candidate relics (from ${allRelics.length} total)`);
+    console.log(`Required effects: ${requiredEffects.map(r => `${r.effect} (x${r.count})`).join(', ')}`);
+    console.log(`Avoided effects: ${avoidedEffects.join(', ')}`);
+
+    // Optimized search with pre-filtered candidates and deduplication
     for (let vesselIndex = 0; vesselIndex < vessels.length && results.length < MAX_RESULTS; vesselIndex++) {
       const vessel = vessels[vesselIndex];
       
       // Update progress based on vessel completion
-      setSearchProgress({ current: vesselIndex, total: totalVessels });
+      setSearchProgress({ 
+        current: vesselIndex, 
+        total: totalVessels,
+        combinationsChecked: totalCombinationsChecked
+      });
       
       const tryRelicCombination = async (currentIndex: number, currentRelics: Relic[]) => {
         if (results.length >= MAX_RESULTS) return;
         
+        // Yield to browser periodically to prevent blocking (much less frequent)
+        totalCombinationsChecked++;
+        if (totalCombinationsChecked % YIELD_INTERVAL === 0) {
+          setSearchProgress({ 
+            current: vesselIndex, 
+            total: totalVessels,
+            combinationsChecked: totalCombinationsChecked
+          });
+          await yieldToBrowser();
+        }
+        
         if (currentIndex >= vessel.slots.length) {
+          // Create canonical key for this build to check for duplicates
+          const buildKey = createBuildKey(currentRelics);
+          if (seenBuilds.has(buildKey)) {
+            return; // Skip duplicate
+          }
+          seenBuilds.add(buildKey);
+          
           // Check if this combination meets the requirements
           const allEffects = currentRelics.flatMap(relic => {
             if (isNormalRelic(relic)) {
@@ -549,52 +608,31 @@ function SearchPageContent() {
             }
           });
 
-                  // Count occurrences of each effect
-                  const effectCounts: Record<string, number> = {};
-                  allEffects.forEach(effect => {
-                    effectCounts[effect] = (effectCounts[effect] || 0) + 1;
-                  });
+          // Count occurrences of each effect
+          const effectCounts: Record<string, number> = {};
+          allEffects.forEach(effect => {
+            effectCounts[effect] = (effectCounts[effect] || 0) + 1;
+          });
 
-                  // Check if all required effects are found with correct counts
-                  const requiredEffectsFound = requiredEffects.filter(req => {
-                    const count = effectCounts[req.effect] || 0;
-                    return count >= req.count;
-                  });
-                  const avoidedEffectsFound = avoidedEffects.filter(avoid => 
-                    allEffects.includes(avoid)
-                  );
+          // Check if all required effects are found with correct counts
+          const requiredEffectsFound = requiredEffects.filter(req => {
+            const count = effectCounts[req.effect] || 0;
+            return count >= req.count;
+          });
+          const avoidedEffectsFound = avoidedEffects.filter(avoid => 
+            allEffects.includes(avoid)
+          );
 
-                  // Check if all required effects are found with correct counts and no avoided effects are present
-                  const meetsRequirements = requiredEffects.length === 0 || 
-                    requiredEffects.every(req => {
-                      const count = effectCounts[req.effect] || 0;
-                      return count >= req.count;
-                    });
-                  const avoidsUnwanted = avoidedEffects.length === 0 || 
-                    !avoidedEffects.some(avoid => allEffects.includes(avoid));
+          // Check if all required effects are found with correct counts and no avoided effects are present
+          const meetsRequirements = requiredEffects.length === 0 || 
+            requiredEffects.every(req => {
+              const count = effectCounts[req.effect] || 0;
+              return count >= req.count;
+            });
+          const avoidsUnwanted = avoidedEffects.length === 0 || 
+            !avoidedEffects.some(avoid => allEffects.includes(avoid));
 
           if (meetsRequirements && avoidsUnwanted) {
-            // Categorize effects for display using actual CSV data
-            const allPositiveEffects = new Set<string>();
-            const allNegativeEffects = new Set<string>();
-            
-            // Add depth relic effects
-            relicsData.depthRelics.forEach(relic => {
-              if (relic.positiveEffect1) allPositiveEffects.add(relic.positiveEffect1);
-              if (relic.positiveEffect2) allPositiveEffects.add(relic.positiveEffect2);
-              if (relic.positiveEffect3) allPositiveEffects.add(relic.positiveEffect3);
-              if (relic.negativeEffect1) allNegativeEffects.add(relic.negativeEffect1);
-              if (relic.negativeEffect2) allNegativeEffects.add(relic.negativeEffect2);
-              if (relic.negativeEffect3) allNegativeEffects.add(relic.negativeEffect3);
-            });
-            
-            // Add normal relic effects (these are also positive effects)
-            relicsData.normalRelics.forEach(relic => {
-              if (relic.effect1) allPositiveEffects.add(relic.effect1);
-              if (relic.effect2) allPositiveEffects.add(relic.effect2);
-              if (relic.effect3) allPositiveEffects.add(relic.effect3);
-            });
-            
             const positiveEffects = allEffects.filter(effect => 
               allPositiveEffects.has(effect)
             );
@@ -623,6 +661,8 @@ function SearchPageContent() {
         }
 
         const slot = vessel.slots[currentIndex];
+        
+        // Get compatible relics for this slot
         const compatibleRelics = finalCandidates
           .filter((relic): relic is Relic => {
             // Check slot type compatibility
@@ -664,8 +704,11 @@ function SearchPageContent() {
     }
 
     setSearchResults(results.slice(0, MAX_RESULTS));
-    setSearchProgress({ current: totalVessels, total: totalVessels });
+    setSearchProgress({ current: totalVessels, total: totalVessels, combinationsChecked: totalCombinationsChecked });
     setIsSearching(false);
+    
+    console.log(`Search completed: ${results.length} results found after checking ${totalCombinationsChecked.toLocaleString()} combinations`);
+    console.log(`Unique builds checked: ${seenBuilds.size}`);
   };
 
   if (isLoading) {
@@ -872,8 +915,11 @@ function SearchPageContent() {
                     style={{ width: `${searchProgress.total > 0 ? (searchProgress.current / searchProgress.total) * 100 : 0}%` }}
                   ></div>
                 </div>
-                <div className="text-xs text-white/60 mt-1 text-center">
-                  已搜索 {searchProgress.current} / {searchProgress.total} 个容器
+                <div className="text-xs text-white/60 mt-1 text-center space-y-1">
+                  <div>已搜索 {searchProgress.current} / {searchProgress.total} 个容器</div>
+                  {searchProgress.combinationsChecked > 0 && (
+                    <div>已检查 {searchProgress.combinationsChecked.toLocaleString()} 种组合</div>
+                  )}
                 </div>
               </div>
             )}
