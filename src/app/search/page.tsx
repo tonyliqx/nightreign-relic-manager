@@ -644,6 +644,26 @@ function SearchPageContent() {
     };
 
     // Optimized search with pre-filtered candidates and deduplication
+    const isSameRelic = (a: Relic, b: Relic): boolean => {
+      if (a === b) return true;
+      if (isNormalRelic(a) && isNormalRelic(b)) {
+        return a.color === b.color &&
+          a.effect1 === b.effect1 &&
+          a.effect2 === b.effect2 &&
+          a.effect3 === b.effect3;
+      }
+      if (isDepthRelic(a) && isDepthRelic(b)) {
+        return a.color === b.color &&
+          a.positiveEffect1 === b.positiveEffect1 &&
+          a.negativeEffect1 === b.negativeEffect1 &&
+          a.positiveEffect2 === b.positiveEffect2 &&
+          a.negativeEffect2 === b.negativeEffect2 &&
+          a.positiveEffect3 === b.positiveEffect3 &&
+          a.negativeEffect3 === b.negativeEffect3;
+      }
+      return false;
+    };
+
     for (let vesselIndex = 0; vesselIndex < vessels.length && results.length < MAX_RESULTS; vesselIndex++) {
       const vessel = vessels[vesselIndex];
       
@@ -655,8 +675,9 @@ function SearchPageContent() {
       });
       
       const slotCandidates = vessel.slots
-        .map(slot => ({
+        .map((slot, originalIndex) => ({
           slot,
+          originalIndex,
           candidates: finalCandidates.filter((relic): relic is Relic => {
             // Check slot type compatibility
             if (slot.slotType === 'normal' && !isNormalRelic(relic)) return false;
@@ -677,7 +698,7 @@ function SearchPageContent() {
 
       const tryRelicCombination = async (
         currentIndex: number,
-        currentRelics: Relic[],
+        currentRelics: Array<Relic | undefined>,
         currentCounts: number[]
       ) => {
         if (results.length >= MAX_RESULTS) return;
@@ -702,15 +723,16 @@ function SearchPageContent() {
         }
 
         if (currentIndex >= slotCandidates.length) {
+          const orderedRelics = currentRelics.filter((relic): relic is Relic => Boolean(relic));
           // Create canonical key for this build to check for duplicates
-          const buildKey = createBuildKey(currentRelics);
+          const buildKey = createBuildKey(orderedRelics);
           if (seenBuilds.has(buildKey)) {
             return; // Skip duplicate
           }
           seenBuilds.add(buildKey);
           
           // Check if this combination meets the requirements
-          const allEffects = currentRelics.flatMap(relic => {
+          const allEffects = orderedRelics.flatMap(relic => {
             if (isNormalRelic(relic)) {
               return [relic.effect1, relic.effect2, relic.effect3].filter((e): e is string => Boolean(e));
             } else {
@@ -764,7 +786,7 @@ function SearchPageContent() {
 
             results.push({
               vessel,
-              equippedRelics: [...currentRelics],
+              equippedRelics: orderedRelics,
               additionalPositiveEffects,
               additionalNegativeEffects,
               requiredEffectsFound: requiredEffectsFound.map(req => req.effect),
@@ -774,31 +796,19 @@ function SearchPageContent() {
           return;
         }
 
-        const { slot, candidates } = slotCandidates[currentIndex];
+        const { slot, candidates, originalIndex } = slotCandidates[currentIndex];
         const compatibleRelics = candidates.filter(relic => {
           // Check if relic is already used in this build
           return !currentRelics.some(existingRelic => 
-            existingRelic === relic || 
-            (isNormalRelic(existingRelic) && isNormalRelic(relic) && 
-             existingRelic.color === relic.color && 
-             existingRelic.effect1 === relic.effect1 && 
-             existingRelic.effect2 === relic.effect2 && 
-             existingRelic.effect3 === relic.effect3) ||
-            (isDepthRelic(existingRelic) && isDepthRelic(relic) && 
-             existingRelic.color === relic.color && 
-             existingRelic.positiveEffect1 === relic.positiveEffect1 && 
-             existingRelic.negativeEffect1 === relic.negativeEffect1 && 
-             existingRelic.positiveEffect2 === relic.positiveEffect2 && 
-             existingRelic.negativeEffect2 === relic.negativeEffect2 && 
-             existingRelic.positiveEffect3 === relic.positiveEffect3 && 
-             existingRelic.negativeEffect3 === relic.negativeEffect3)
+            existingRelic ? isSameRelic(existingRelic, relic) : false
           );
         });
         
         // Try each compatible relic
         for (const relic of compatibleRelics) {
           if (results.length >= MAX_RESULTS) return;
-          const newRelics = [...currentRelics, relic];
+          const newRelics = [...currentRelics];
+          newRelics[originalIndex] = relic;
           let newCounts = currentCounts;
           if (requiredTotal > 0) {
             const relicCounts = getRelicRequiredCounts(relic);
@@ -811,7 +821,11 @@ function SearchPageContent() {
         await tryRelicCombination(currentIndex + 1, currentRelics, currentCounts);
       };
 
-      await tryRelicCombination(0, [], new Array(requiredEffects.length).fill(0));
+      await tryRelicCombination(
+        0,
+        new Array(vessel.slots.length).fill(undefined),
+        new Array(requiredEffects.length).fill(0)
+      );
     }
 
     setSearchResults(results.slice(0, MAX_RESULTS));
